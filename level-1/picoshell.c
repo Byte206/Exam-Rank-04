@@ -1,110 +1,148 @@
-#include "../../header.h"
-// Includes the header file with necessary definitions
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdlib.h>
 
 int picoshell(char **cmds[])
-// Function that receives an array of arrays of strings (commands with their arguments)
+// Function that receives an array of command arrays
 // Example: cmds[0] = {"ls", "-l", NULL}, cmds[1] = {"grep", "txt", NULL}
-
 {
     int i = 0;
-    // Index to iterate over the commands in the cmds[] array
+    // Index to iterate through commands
     
     int fd[2];
-    // Array to store pipe descriptors: fd[0]=read, fd[1]=write
+    // Array to store pipe file descriptors: fd[0]=read end, fd[1]=write end
     
     int in_fd = 0;
-    // Descriptor that stores the input of the current command
+    // File descriptor for the input of the current command
     // Initialized to 0 (stdin) for the first command
+    
+    int ret = 0;
+    // Return value: 0 = success, 1 = error
+    // Will be set to 1 if any child process fails
     
     pid_t pid;
     // Variable to store the child process ID after fork()
     
-    if (!cmds)
-        return 1;
-    // If cmds is NULL, return 1 (error)
+    int status;
+    // Variable to store the exit status of child processes
     
     while (cmds[i])
-    // While there are commands to process (until NULL is found)
+    // Loop through each command until NULL is found
     {
         if (cmds[i + 1])
         // If there is a next command (not the last one)
-            pipe(fd);
-        // Creates a pipe: fd[0] for reading, fd[1] for writing
+        {
+            if (pipe(fd) == -1)
+                // Creates a pipe and checks if it failed
+                return 1;
+                // If pipe() fails, return error immediately
+        }
         else
-        // If it's the last command
+        // If this is the last command
         {
             fd[0] = -1;
-            // Marks fd[0] as invalid
+            // Mark read end as invalid (no pipe needed)
             fd[1] = -1;
-            // Marks fd[1] as invalid (doesn't need output pipe)
+            // Mark write end as invalid (no pipe needed)
         }
         
         pid = fork();
-        // Creates a child process. Returns 0 to child, and child's PID to parent
+        // Creates a child process
+        // Returns 0 to child, child's PID to parent, -1 on error
+        
+        if (pid < 0)
+        // If fork() failed
+        {
+            if (fd[0] != -1)
+                close(fd[0]);
+                // Close read end of current pipe if it exists
+            if (fd[1] != -1)
+                close(fd[1]);
+                // Close write end of current pipe if it exists
+            if (in_fd != 0)
+                close(in_fd);
+                // Close previous pipe's read end if it exists
+            return 1;
+            // Return error after cleaning up file descriptors
+        }
         
         if (pid == 0)
-        // Code executed by the CHILD PROCESS
+        // Code executed by CHILD PROCESS
         {
             if (in_fd != 0)
-            // If there is a redirected input (not standard stdin)
+            // If there's input from a previous pipe
             {
-                dup2(in_fd, STDIN_FILENO);
-                // Duplicates in_fd onto stdin (descriptor 0)
-                // Now stdin reads from the previous pipe
-                
+                if (dup2(in_fd, 0) == -1)
+                    // Duplicate in_fd onto stdin (file descriptor 0)
+                    // Checks if dup2() failed
+                    exit(1);
+                    // Exit child with error if dup2 failed
                 close(in_fd);
-                // Closes the original descriptor (no longer needed, it's duplicated)
+                // Close original descriptor (now duplicated to stdin)
             }
             
             if (fd[1] != -1)
-            // If there is an output pipe (not the last command)
+            // If there's an output pipe (not the last command)
             {
-                dup2(fd[1], STDOUT_FILENO);
-                // Duplicates fd[1] onto stdout (descriptor 1)
-                // Now stdout writes to the pipe towards the next command
-                
+                if (dup2(fd[1], 1) == -1)
+                    // Duplicate fd[1] onto stdout (file descriptor 1)
+                    // Checks if dup2() failed
+                    exit(1);
+                    // Exit child with error if dup2 failed
                 close(fd[1]);
-                // Closes the original write descriptor
-                
+                // Close original write end (now duplicated to stdout)
                 close(fd[0]);
-                // Closes the read descriptor (the child doesn't use it)
+                // Close read end (child doesn't need it)
             }
             
             execvp(cmds[i][0], cmds[i]);
-            // Replaces the current process with the command to execute
-            // cmds[i][0] is the command name, cmds[i] are all its arguments
-            // If execvp succeeds, it never returns (the process is replaced)
+            // Replace process with the command
+            // cmds[i][0] is the command name
+            // cmds[i] is the full argument array
+            // If successful, this never returns
             
-            exit(0);
-            // Only executes if execvp fails. Terminates the child process
+            exit(1);
+            // Only reached if execvp() failed
+            // Exit with error code 1 (IMPORTANT: not 0!)
         }
         else
-        // Code executed by the PARENT PROCESS
+        // Code executed by PARENT PROCESS
         {
             if (in_fd != 0)
                 close(in_fd);
-            // Closes the previous pipe (the parent no longer needs it)
+                // Close previous pipe's read end (no longer needed)
             
             if (fd[1] != -1)
                 close(fd[1]);
-            // Closes the write end of the current pipe
-            // The parent doesn't write to the pipe, only the child does
+                // Close write end of current pipe (parent doesn't write)
             
             in_fd = fd[0];
-            // Saves the read end of the current pipe
-            // This will be the input of the NEXT command
+            // Save read end of current pipe
+            // This will be the input for the next command
             
             i++;
-            // Advances to the next command in the array
+            // Move to next command
         }
     }
     
-    while (wait(NULL) > 0)
-         ;
-    // Waits for ALL child processes to finish
-    // wait() returns -1 when there are no more children
-    // NULL indicates we don't care about the exit status
+    while (wait(&status) > 0)
+    // Wait for ALL child processes to finish
+    // wait() returns -1 when no more children exist
+    // &status captures the exit status of each child
+    {
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+            // WIFEXITED: checks if child exited normally (not killed by signal)
+            // WEXITSTATUS: extracts the exit code (0-255)
+            // If child exited normally but with non-zero code (error)
+            ret = 1;
+            // Mark overall operation as failed
+        else if (!WIFEXITED(status))
+            // If child did NOT exit normally
+            // (terminated by signal: SIGSEGV, SIGKILL, etc.)
+            ret = 1;
+            // Mark overall operation as failed
+    }
     
-    return 0;
-    // Returns 0 indicating success
+    return ret;
+    // Return 0 if all commands succeeded, 1 if any failed
 }
