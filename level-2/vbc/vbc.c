@@ -3,6 +3,11 @@
 #include <stdlib.h>    // Para calloc y free (gestión de memoria dinámica)
 #include <ctype.h>     // Para isdigit (verificar si un caracter es un dígito)
 
+// ===== VARIABLES GLOBALES =====
+// En lugar de pasar punteros complicados, usamos variables globales más simples
+char *input_string;    // La cadena de entrada que vamos a parsear
+int pos = 0;           // Posición actual en la cadena (índice)
+
 // Definimos una estructura para representar los nodos del árbol sintáctico
 typedef struct node {
     enum {              // Enumeración para indicar el tipo de nodo:
@@ -46,32 +51,33 @@ void unexpected(char c)
         printf("Unexpected end of input\n");      // Si c es '\0', la entrada terminó inesperadamente
 }
 
-// Función que intenta "aceptar" un caracter específico en la posición actual
-// Si el caracter coincide, avanza el puntero. Retorna 1 si acepta, 0 si no.
-int accept(char **s, char c)
+// Función simplificada que intenta "aceptar" un caracter específico
+// Lee de la posición actual (pos) en input_string
+// Si el caracter coincide, avanza pos. Retorna 1 si acepta, 0 si no.
+int accept(char c)
 {
-    if (**s == c) {      // Si el caracter actual apuntado por *s es igual a c
-        (*s)++;          // Avanzamos el puntero al siguiente caracter
-        return 1;        // Retornamos 1 (éxito)
+    if (input_string[pos] == c) {  // Si el caracter actual es igual a c
+        pos++;                      // Avanzamos la posición global
+        return 1;                   // Retornamos 1 (éxito)
     }
-    return 0;            // Retornamos 0 (no coincide)
+    return 0;                       // Retornamos 0 (no coincide)
 }
 
-// Función que "espera" un caracter específico
+// Función simplificada que "espera" un caracter específico
 // Si no lo encuentra, muestra un error. Retorna 1 si encuentra, 0 si no.
-int expect(char **s, char c)
+int expect(char c)
 {
-    if (accept(s, c))    // Intentamos aceptar el caracter
-        return 1;        // Si lo acepta, retornamos 1
-    unexpected(**s);     // Si no, mostramos un mensaje de error con el caracter encontrado
-    return 0;            // Retornamos 0 (fallo)
+    if (accept(c))                // Intentamos aceptar el caracter
+        return 1;                 // Si lo acepta, retornamos 1
+    unexpected(input_string[pos]); // Si no, mostramos error con el caracter actual
+    return 0;                     // Retornamos 0 (fallo)
 }
 
 // Declaración anticipada de las funciones de parsing (análisis sintáctico)
 // Esto es necesario porque estas funciones se llaman entre sí recursivamente
-static node *parse_expr_r(char **s);  // Parsea expresiones (suma)
-static node *parse_term   (char **s);  // Parsea términos (multiplicación)
-static node *parse_factor (char **s);  // Parsea factores (números o paréntesis)
+static node *parse_expr_r(void);  // Parsea expresiones (suma)
+static node *parse_term   (void);  // Parsea términos (multiplicación)
+static node *parse_factor (void);  // Parsea factores (números o paréntesis)
 
 /* ADDED: parsing d’un facteur (chiffre ou parenthèse) */
 static node *parse_factor(char **s)

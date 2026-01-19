@@ -5,7 +5,71 @@
 
 int	picoshell(char **cmds[])
 {
-	
+	int fd_in = 0;
+	int i = 0;
+	int fd[2];
+	int ret = 0;
+	int status = 0;
+	pid_t pid;
+
+	while(cmds[i])
+	{
+		if (cmds[i + 1])
+		{
+			if (pipe(fd) < 0)
+				return(1);
+		}
+		else
+		{
+			fd[1] = -1;
+			fd[0] = -1;
+		}
+		pid = fork();
+		if (pid < 0)
+		{
+			if (fd[1] != -1)
+				close(fd[1]);
+			if (fd[0] != -1)
+				close(fd[0]);
+			if (fd_in != 0)
+				close(fd_in);
+			return(1);
+		}
+		if (pid == 0)
+		{
+			if (fd_in != 0)
+			{
+				if (dup2(fd_in, 0) < 0)
+					exit(1);
+				close(fd_in);
+			}
+			if(fd[1] != -1)
+			{
+				if (dup2(fd[1], 1) < 0)
+					exit(1);
+				close(fd[1]);
+			}
+			execvp(cmds[i][0], cmds[i]);
+			exit(1);
+		}
+		else
+		{
+			if (fd[1] != -1)
+				close(fd[1]);
+			if(fd_in != 0)
+				close(fd_in);
+			fd_in = fd[0];
+			i++;
+		}
+	}
+	while(wait(&status) > 0)
+	{
+		if(WIFEXITED(status) && WEXITSTATUS(status) != 0)
+			ret = 1;
+		else if(!WIFEXITED(status))
+			ret = 1;
+	}
+	return ret;
 }
 
 
